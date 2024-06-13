@@ -3,6 +3,7 @@ import {appConfig} from 'appConfig';
 import {getErrorMessage, gettext} from '../../utils';
 import {CHART_TYPES} from '../../charts/directives/ChartOptions';
 import {searchReportService} from '../../search/services/SearchReport';
+import {superdeskApi} from '../../superdeskApi';
 
 ContentPublishingReportController.$inject = [
     '$scope',
@@ -85,7 +86,7 @@ export function ContentPublishingReportController(
         );
 
         $scope.report_groups = searchReportService.filterDataFields(
-            ['anpa_category.qcode', 'genre.qcode', 'source', 'urgency', 'subject.qcode']
+            ['anpa_category.qcode', 'genre.qcode', 'source', 'urgency', 'subject.qcode', 'authors.parent', 'language']
         );
 
         $scope.currentParams = {
@@ -118,7 +119,8 @@ export function ContentPublishingReportController(
 
         $scope.defaultReportParams = _.cloneDeep($scope.currentParams);
 
-        $scope.group_by = _.cloneDeep($scope.report_groups);
+        $scope.group_by = $scope.group_by = _.cloneDeep($scope.report_groups);
+
         $scope.updateGroupOptions();
     };
 
@@ -177,6 +179,14 @@ export function ContentPublishingReportController(
      * @description Updates the available group/subgroup options when the user changes the group
      */
     $scope.updateGroupOptions = () => {
+        const excludedSchemes = new Set(['languages', 'author_roles', 'genre']);
+
+        const customVocab = getCustomVocabulariesData().filter(
+            (item) => !excludedSchemes.has(item.qcode.scheme));
+
+        $scope.group_by = [...$scope.report_groups, ...customVocab.filter(
+            (item) => !new Set($scope.report_groups.map((item) => item.name)).has(item.name))];
+
         $scope.subgroup_by = _.filter(
             $scope.report_groups,
             (group) => group.qcode !== $scope.currentParams.params.aggs.group.field
@@ -342,7 +352,15 @@ export const generateTitle = (chart, params) => {
         return params.chart.title;
     }
 
-    const parentField = _.get(params, 'aggs.group.field');
+    let parentField = _.get(params, 'aggs.group.field');
+
+    if (parentField.startsWith('{"scheme')) {
+        const obj = JSON.parse(parentField);
+
+        parentField = getCustomVocabulariesData().find(
+            (value) => value.qcode.scheme == obj.scheme)?.name;
+    }
+
     const parentName = chart.getSourceName(parentField);
 
     if (_.get(params, 'aggs.subgroup.field.length', 0) > 0) {
@@ -357,3 +375,9 @@ export const generateTitle = (chart, params) => {
 
     return gettext('Published Stories per {{group}}', {group: parentName});
 };
+
+export function getCustomVocabulariesData() {
+    return superdeskApi.entities.vocabulary.getCustomVocabulary().map((data) => {
+        return {'name': data['display_name'], 'qcode': {'scheme': data['_id']}};
+    });
+}
